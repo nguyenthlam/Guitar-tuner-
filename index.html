@@ -155,6 +155,22 @@
     width: 28px;
   }
 
+  .cents-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 52px;
+    gap: 2px;
+  }
+
+  .cents-direction {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+
   .cents-value {
     font-family: 'Bebas Neue', sans-serif;
     font-size: 52px;
@@ -176,8 +192,10 @@
 
   .cents-display.sharp { color: #fb923c; }
   .cents-display.sharp .cents-arrow { opacity: 1; color: #fb923c; }
+  .cents-display.sharp .cents-direction { opacity: 1; }
   .cents-display.flat  { color: #38bdf8; }
   .cents-display.flat  .cents-arrow { opacity: 1; color: #38bdf8; }
+  .cents-display.flat  .cents-direction { opacity: 1; }
   .cents-display.in-tune { color: var(--green); }
   .cents-display.in-tune .cents-value { text-shadow: 0 0 20px rgba(34,197,94,0.5); }
 
@@ -388,8 +406,12 @@
     <span class="tick-label">+50¢</span>
   </div>
 
+
   <div class="cents-display" id="centsDisplay">
-    <span class="cents-arrow" id="centsArrow">▼</span>
+    <div class="cents-left">
+      <span class="cents-arrow" id="centsArrow">▼</span>
+      <span class="cents-direction" id="centsDirection"></span>
+    </div>
     <span class="cents-value" id="centsValue">—</span>
     <span class="cents-label">CENTS</span>
   </div>
@@ -432,9 +454,9 @@ let smoothedFreq = 0;
 let smoothedCents = 0;
 let stableNote = null;
 let stableCount = 0;
-const STABLE_THRESHOLD = 8;   // frames note must stay consistent before updating display
-const CENTS_SMOOTH = 0.88;    // higher = slower needle (0-1)
-const FREQ_SMOOTH = 0.85;     // higher = slower frequency tracking
+const STABLE_THRESHOLD = 3;   // frames before accepting a new note
+const CENTS_SMOOTH = 0.82;    // needle smoothing
+const FREQ_SMOOTH = 0.75;     // frequency tracking speed
 
 // Build string buttons
 const grid = document.getElementById('stringsGrid');
@@ -527,6 +549,7 @@ function updateUI(result) {
   const centsEl = document.getElementById('centsDisplay');
   const centsVal = document.getElementById('centsValue');
   const centsArrow = document.getElementById('centsArrow');
+  const centsDir = document.getElementById('centsDirection');
 
   if (!result) {
     noteChar.textContent = '—';
@@ -536,6 +559,7 @@ function updateUI(result) {
     freqEl.textContent = '— Hz';
     centsVal.textContent = '—';
     centsArrow.textContent = '▼';
+    centsDir.textContent = '';
     centsEl.className = 'cents-display';
     setNeedle(0);
     document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('active','in-tune'));
@@ -555,15 +579,20 @@ function updateUI(result) {
 
   if (inTune) {
     centsVal.textContent = 'IN TUNE';
-    centsArrow.textContent = '▼';
+    centsArrow.textContent = '✓';
+    centsDir.textContent = '';
     centsEl.className = 'cents-display in-tune';
   } else if (cents > 0) {
+    // Sharp — tune DOWN (loosen peg)
     centsVal.textContent = '+' + cents.toFixed(1);
-    centsArrow.textContent = '▲';
+    centsArrow.textContent = '▼';
+    centsDir.textContent = 'TUNE DOWN';
     centsEl.className = 'cents-display sharp';
   } else {
+    // Flat — tune UP (tighten peg)
     centsVal.textContent = cents.toFixed(1);
-    centsArrow.textContent = '▼';
+    centsArrow.textContent = '▲';
+    centsDir.textContent = 'TUNE UP';
     centsEl.className = 'cents-display flat';
   }
 
@@ -620,12 +649,22 @@ function analyse() {
   const freq = detectPitch(buf, audioCtx.sampleRate);
 
   if (freq > 60 && freq < 1200) {
-    // Smooth the raw frequency
-    smoothedFreq = smoothedFreq === 0 ? freq : smoothedFreq * FREQ_SMOOTH + freq * (1 - FREQ_SMOOTH);
-    const result = freqToNote(smoothedFreq);
+    const result = freqToNote(freq);
 
     if (result) {
-      // Require the same note to appear consistently before switching display
+      // If note jumps by more than a semitone, reset smoothers instantly
+      const freqJump = smoothedFreq > 0 && (Math.abs(freq - smoothedFreq) / smoothedFreq > 0.03);
+      if (freqJump) {
+        smoothedFreq = freq;
+        smoothedCents = result.cents;
+        stableNote = null;
+        stableCount = 0;
+      }
+
+      // Smooth the raw frequency
+      smoothedFreq = smoothedFreq === 0 ? freq : smoothedFreq * FREQ_SMOOTH + freq * (1 - FREQ_SMOOTH);
+
+      // Require the same note consistently before switching display
       if (stableNote === result.note) {
         stableCount++;
       } else {
@@ -633,7 +672,7 @@ function analyse() {
         stableCount = 0;
       }
 
-      // Smooth cents independently for a calm needle
+      // Smooth cents for a calm needle
       smoothedCents = smoothedCents * CENTS_SMOOTH + result.cents * (1 - CENTS_SMOOTH);
 
       if (stableCount >= STABLE_THRESHOLD) {
