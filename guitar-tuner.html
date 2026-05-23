@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Guitar Tuner</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --panel: #141414;
+    --border: #2a2a2a;
+    --amber: #e8a020;
+    --amber-dim: #7a4a08;
+    --green: #22c55e;
+    --red: #ef4444;
+    --needle: #e8a020;
+    --text: #c8c0b0;
+    --text-dim: #4a4540;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px 16px 32px;
+    overflow-x: hidden;
+  }
+
+  /* Grain overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 999;
+    opacity: 0.6;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+
+  .brand {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 13px;
+    letter-spacing: 6px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+
+  .model {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 42px;
+    letter-spacing: 4px;
+    color: var(--amber);
+    line-height: 1;
+    text-shadow: 0 0 30px rgba(232,160,32,0.3);
+  }
+
+  /* Main meter panel */
+  .meter-panel {
+    width: 100%;
+    max-width: 380px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 20px 24px;
+    position: relative;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  /* Note display */
+  .note-display {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+
+  .note-name {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 88px;
+    line-height: 1;
+    color: var(--amber);
+    text-shadow: 0 0 40px rgba(232,160,32,0.4);
+    transition: color 0.15s, text-shadow 0.15s;
+    min-height: 88px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .note-name.in-tune {
+    color: var(--green);
+    text-shadow: 0 0 40px rgba(34,197,94,0.5);
+  }
+
+  .note-octave {
+    font-size: 36px;
+    opacity: 0.6;
+    align-self: flex-end;
+    padding-bottom: 10px;
+  }
+
+  .freq-display {
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+    height: 18px;
+    transition: color 0.15s;
+  }
+
+  .freq-display.active { color: var(--amber); }
+
+  /* VU-style meter arc */
+  .meter-wrap {
+    position: relative;
+    width: 100%;
+    height: 160px;
+    margin-bottom: 8px;
+  }
+
+  .meter-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  /* Cents display */
+  .cents-display {
+    text-align: center;
+    font-size: 12px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    height: 20px;
+    margin-bottom: 16px;
+    transition: color 0.15s;
+  }
+
+  .cents-display.sharp { color: #f97316; }
+  .cents-display.flat  { color: #60a5fa; }
+  .cents-display.in-tune { color: var(--green); }
+
+  /* String buttons */
+  .strings-label {
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: var(--text-dim);
+    text-align: center;
+    margin-bottom: 12px;
+  }
+
+  .strings-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+
+  .string-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    padding: 10px 4px 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .string-btn span.num {
+    font-size: 9px;
+    letter-spacing: 1px;
+    font-family: 'Share Tech Mono', monospace;
+    opacity: 0.5;
+  }
+
+  .string-btn:hover, .string-btn.active {
+    border-color: var(--amber);
+    color: var(--amber);
+    background: rgba(232,160,32,0.06);
+    box-shadow: 0 0 12px rgba(232,160,32,0.15);
+  }
+
+  .string-btn.in-tune {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(34,197,94,0.06);
+    box-shadow: 0 0 12px rgba(34,197,94,0.2);
+  }
+
+  /* Start button */
+  .start-btn {
+    width: 100%;
+    padding: 16px;
+    background: none;
+    border: 1px solid var(--amber);
+    border-radius: 8px;
+    color: var(--amber);
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 22px;
+    letter-spacing: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .start-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--amber);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .start-btn:hover::before { opacity: 0.08; }
+  .start-btn.listening { border-color: var(--red); color: var(--red); }
+  .start-btn.listening::before { background: var(--red); }
+
+  .start-btn span { position: relative; z-index: 1; }
+
+  /* Status dot */
+  .status-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+
+  .dot.active {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 4px var(--green); }
+    50% { box-shadow: 0 0 12px var(--green); }
+  }
+
+  /* Tick marks decoration */
+  .decorative-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px;
+    margin-bottom: 6px;
+  }
+
+  .tick-label {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">Precision Audio</div>
+  <div class="model">GT-1</div>
+</header>
+
+<div class="meter-panel">
+
+  <div class="note-display">
+    <div class="note-name" id="noteName">
+      <span id="noteChar">—</span>
+      <span class="note-octave" id="noteOctave"></span>
+    </div>
+    <div class="freq-display" id="freqDisplay">— Hz</div>
+  </div>
+
+  <!-- Needle meter -->
+  <div class="meter-wrap">
+    <svg class="meter-svg" viewBox="0 0 340 160" id="meterSvg">
+      <defs>
+        <linearGradient id="arcGradL" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.8"/>
+          <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.2"/>
+        </linearGradient>
+        <linearGradient id="arcGradR" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#f97316" stop-opacity="0.2"/>
+          <stop offset="100%" stop-color="#f97316" stop-opacity="0.8"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- Arc track -->
+      <!-- Background arc -->
+      <path id="arcBg" d="" fill="none" stroke="#1e1e1e" stroke-width="6"/>
+
+      <!-- Left (flat) arc -->
+      <path id="arcLeft" d="" fill="none" stroke="url(#arcGradL)" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+      <!-- Right (sharp) arc -->
+      <path id="arcRight" d="" fill="none" stroke="url(#arcGradR)" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+      <!-- Center green zone -->
+      <path id="arcCenter" d="" fill="none" stroke="#22c55e" stroke-width="6" stroke-linecap="round" opacity="0.6"/>
+
+      <!-- Tick marks -->
+      <g id="ticks" opacity="0.4"></g>
+
+      <!-- Labels -->
+      <text x="30" y="148" fill="#60a5fa" font-family="Share Tech Mono" font-size="11" opacity="0.7">FLAT</text>
+      <text x="278" y="148" fill="#f97316" font-family="Share Tech Mono" font-size="11" opacity="0.7">SHARP</text>
+      <text x="152" y="148" fill="#22c55e" font-family="Share Tech Mono" font-size="11" opacity="0.8">IN TUNE</text>
+
+      <!-- Needle pivot -->
+      <circle cx="170" cy="150" r="6" fill="#2a2a2a" stroke="#3a3a3a" stroke-width="1"/>
+      <circle cx="170" cy="150" r="3" fill="var(--amber)"/>
+
+      <!-- Needle -->
+      <line id="needle" x1="170" y1="150" x2="170" y2="30"
+        stroke="var(--amber)" stroke-width="2" stroke-linecap="round"
+        filter="url(#glow)"
+        transform-origin="170 150"
+        style="transform: rotate(0deg); transition: transform 0.12s cubic-bezier(0.25,0.46,0.45,0.94)"/>
+    </svg>
+  </div>
+
+  <div class="decorative-row">
+    <span class="tick-label">-50¢</span>
+    <span class="tick-label">-25¢</span>
+    <span class="tick-label">0¢</span>
+    <span class="tick-label">+25¢</span>
+    <span class="tick-label">+50¢</span>
+  </div>
+
+  <div class="cents-display" id="centsDisplay">— ¢</div>
+
+  <div class="strings-label">STANDARD TUNING — E A D G B E</div>
+
+  <div class="strings-grid" id="stringsGrid">
+    <!-- filled by JS -->
+  </div>
+
+  <button class="start-btn" id="startBtn" onclick="toggleListen()">
+    <span id="btnText">TAP TO TUNE</span>
+  </button>
+
+  <div class="status-row">
+    <div class="dot" id="statusDot"></div>
+    <span id="statusText">MICROPHONE OFF</span>
+  </div>
+
+</div>
+
+<script>
+// Standard guitar tuning
+const STRINGS = [
+  { note: 'E', freq: 82.41,  num: '6', octave: '2' },
+  { note: 'A', freq: 110.00, num: '5', octave: '2' },
+  { note: 'D', freq: 146.83, num: '4', octave: '3' },
+  { note: 'G', freq: 196.00, num: '3', octave: '3' },
+  { note: 'B', freq: 246.94, num: '2', octave: '3' },
+  { note: 'E', freq: 329.63, num: '1', octave: '4' },
+];
+
+// All chromatic notes
+const NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+let audioCtx, analyser, source, listening = false;
+let animFrame;
+let lastNote = null;
+let smoothedFreq = 0;
+
+// Build string buttons
+const grid = document.getElementById('stringsGrid');
+STRINGS.forEach((s, i) => {
+  const btn = document.createElement('button');
+  btn.className = 'string-btn';
+  btn.id = `str${i}`;
+  btn.innerHTML = `${s.note}<span class="num">${s.num}</span>`;
+  grid.appendChild(btn);
+});
+
+// Build SVG arc paths
+const CX = 170, CY = 150, R = 130;
+const START_DEG = -150, END_DEG = -30;
+
+function polarToXY(deg, r) {
+  const rad = (deg * Math.PI) / 180;
+  return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
+}
+
+function arcPath(startDeg, endDeg, r) {
+  const s = polarToXY(startDeg, r);
+  const e = polarToXY(endDeg, r);
+  const large = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
+  return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
+}
+
+document.getElementById('arcBg').setAttribute('d', arcPath(START_DEG, END_DEG, R));
+document.getElementById('arcLeft').setAttribute('d', arcPath(START_DEG, -90, R));
+document.getElementById('arcRight').setAttribute('d', arcPath(-90, END_DEG, R));
+document.getElementById('arcCenter').setAttribute('d', arcPath(-96, -84, R));
+
+// Tick marks
+const tickG = document.getElementById('ticks');
+[-50,-40,-30,-20,-10,0,10,20,30,40,50].forEach(c => {
+  const frac = (c + 50) / 100;
+  const deg = START_DEG + frac * (END_DEG - START_DEG);
+  const inner = polarToXY(deg, R - 10);
+  const outer = polarToXY(deg, R + 10);
+  const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+  line.setAttribute('x1', inner.x); line.setAttribute('y1', inner.y);
+  line.setAttribute('x2', outer.x); line.setAttribute('y2', outer.y);
+  line.setAttribute('stroke', c === 0 ? '#22c55e' : '#3a3a3a');
+  line.setAttribute('stroke-width', c === 0 ? '2' : '1');
+  tickG.appendChild(line);
+});
+
+// Convert freq -> note name + cents offset
+function freqToNote(freq) {
+  if (!freq || freq < 20) return null;
+  const A4 = 440;
+  const semitones = 12 * Math.log2(freq / A4);
+  const rounded = Math.round(semitones);
+  const cents = (semitones - rounded) * 100;
+  // MIDI note
+  const midi = rounded + 69;
+  const noteIdx = ((midi % 12) + 12) % 12;
+  const octave = Math.floor(midi / 12) - 1;
+  return { note: NOTES[noteIdx], octave, cents, freq };
+}
+
+// Find closest guitar string
+function closestString(note, octave) {
+  const noteFreq = 440 * Math.pow(2, (NOTES.indexOf(note) + (octave + 1) * 12 - 69) / 12);
+  let best = 0, bestDiff = Infinity;
+  STRINGS.forEach((s, i) => {
+    const diff = Math.abs(s.freq - noteFreq);
+    if (diff < bestDiff) { bestDiff = diff; best = i; }
+  });
+  return best;
+}
+
+function setNeedle(cents) {
+  // cents: -50 to +50 maps to START_DEG to END_DEG
+  const clamped = Math.max(-50, Math.min(50, cents));
+  const frac = (clamped + 50) / 100;
+  const deg = START_DEG + frac * (END_DEG - START_DEG);
+  // Rotate from vertical (needle points up at 0), pivot at CY
+  // At center (0 cents), needle is straight up = -90deg from SVG's perspective
+  // We rotate around origin 170,150
+  const rotateDeg = deg - (-90); // how far from straight up
+  document.getElementById('needle').style.transform = `rotate(${rotateDeg}deg)`;
+}
+
+function updateUI(result) {
+  const noteEl = document.getElementById('noteName');
+  const noteChar = document.getElementById('noteChar');
+  const noteOctave = document.getElementById('noteOctave');
+  const freqEl = document.getElementById('freqDisplay');
+  const centsEl = document.getElementById('centsDisplay');
+
+  if (!result) {
+    noteChar.textContent = '—';
+    noteOctave.textContent = '';
+    noteEl.className = 'note-name';
+    freqEl.className = 'freq-display';
+    freqEl.textContent = '— Hz';
+    centsEl.textContent = '— ¢';
+    centsEl.className = 'cents-display';
+    setNeedle(0);
+    // Reset string buttons
+    document.querySelectorAll('.string-btn').forEach(b => b.classList.remove('active','in-tune'));
+    return;
+  }
+
+  const { note, octave, cents, freq } = result;
+  noteChar.textContent = note;
+  noteOctave.textContent = octave;
+  freqEl.textContent = freq.toFixed(1) + ' Hz';
+  freqEl.className = 'freq-display active';
+
+  const inTune = Math.abs(cents) < 5;
+  noteEl.className = 'note-name' + (inTune ? ' in-tune' : '');
+
+  setNeedle(cents);
+
+  const sign = cents > 0 ? '+' : '';
+  centsEl.textContent = sign + cents.toFixed(1) + ' ¢';
+  if (inTune) {
+    centsEl.className = 'cents-display in-tune';
+  } else if (cents > 0) {
+    centsEl.className = 'cents-display sharp';
+  } else {
+    centsEl.className = 'cents-display flat';
+  }
+
+  // Highlight closest string
+  const si = closestString(note, octave);
+  document.querySelectorAll('.string-btn').forEach((b, i) => {
+    b.classList.remove('active','in-tune');
+    if (i === si) b.classList.add(inTune ? 'in-tune' : 'active');
+  });
+}
+
+// Autocorrelation pitch detection
+function detectPitch(buffer, sampleRate) {
+  const SIZE = buffer.length;
+  const MAX_SAMPLES = Math.floor(SIZE / 2);
+  const correlations = new Float32Array(MAX_SAMPLES);
+
+  // RMS check
+  let rms = 0;
+  for (let i = 0; i < SIZE; i++) rms += buffer[i] * buffer[i];
+  rms = Math.sqrt(rms / SIZE);
+  if (rms < 0.01) return -1;
+
+  // Autocorrelation
+  for (let lag = 0; lag < MAX_SAMPLES; lag++) {
+    let sum = 0;
+    for (let i = 0; i < MAX_SAMPLES; i++) sum += buffer[i] * buffer[i + lag];
+    correlations[lag] = sum;
+  }
+
+  // Find first local min then first peak after
+  let d = 0;
+  while (d < MAX_SAMPLES - 1 && correlations[d] > correlations[d + 1]) d++;
+  let maxCorr = -1, maxLag = -1;
+  for (let i = d; i < MAX_SAMPLES; i++) {
+    if (correlations[i] > maxCorr) { maxCorr = correlations[i]; maxLag = i; }
+  }
+  if (maxLag === -1 || maxCorr < correlations[0] * 0.5) return -1;
+
+  // Parabolic interpolation for sub-sample precision
+  let x1 = maxLag < 1 ? maxLag : maxLag - 1;
+  let x2 = maxLag;
+  let x3 = maxLag + 1 < MAX_SAMPLES ? maxLag + 1 : maxLag;
+  const a = correlations[x1], b2 = correlations[x2], c = correlations[x3];
+  const refined = x2 + 0.5 * (a - c) / (a - 2 * b2 + c);
+
+  return sampleRate / refined;
+}
+
+function analyse() {
+  if (!listening) return;
+  const buf = new Float32Array(analyser.fftSize);
+  analyser.getFloatTimeDomainData(buf);
+  const freq = detectPitch(buf, audioCtx.sampleRate);
+
+  if (freq > 60 && freq < 1200) {
+    smoothedFreq = smoothedFreq === 0 ? freq : smoothedFreq * 0.8 + freq * 0.2;
+    const result = freqToNote(smoothedFreq);
+    updateUI(result);
+  }
+
+  animFrame = requestAnimationFrame(analyse);
+}
+
+async function toggleListen() {
+  if (!listening) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 4096;
+      analyser.smoothingTimeConstant = 0.3;
+      source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      listening = true;
+      smoothedFreq = 0;
+      document.getElementById('startBtn').classList.add('listening');
+      document.getElementById('btnText').textContent = 'STOP';
+      document.getElementById('statusDot').classList.add('active');
+      document.getElementById('statusText').textContent = 'LISTENING';
+      analyse();
+    } catch(e) {
+      alert('Microphone access denied. Please allow microphone permission and try again.');
+    }
+  } else {
+    listening = false;
+    cancelAnimationFrame(animFrame);
+    if (source) source.disconnect();
+    if (audioCtx) audioCtx.close();
+    smoothedFreq = 0;
+    document.getElementById('startBtn').classList.remove('listening');
+    document.getElementById('btnText').textContent = 'TAP TO TUNE';
+    document.getElementById('statusDot').classList.remove('active');
+    document.getElementById('statusText').textContent = 'MICROPHONE OFF';
+    updateUI(null);
+  }
+}
+</script>
+</body>
+</html>
