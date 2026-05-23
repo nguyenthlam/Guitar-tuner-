@@ -344,7 +344,7 @@
         stroke="var(--amber)" stroke-width="2" stroke-linecap="round"
         filter="url(#glow)"
         transform-origin="170 150"
-        style="transform: rotate(0deg); transition: transform 0.12s cubic-bezier(0.25,0.46,0.45,0.94)"/>
+        style="transform: rotate(0deg); transition: transform 0.25s cubic-bezier(0.25,0.46,0.45,0.94)"/>
     </svg>
   </div>
 
@@ -393,6 +393,12 @@ let audioCtx, analyser, source, listening = false;
 let animFrame;
 let lastNote = null;
 let smoothedFreq = 0;
+let smoothedCents = 0;
+let stableNote = null;
+let stableCount = 0;
+const STABLE_THRESHOLD = 8;   // frames note must stay consistent before updating display
+const CENTS_SMOOTH = 0.88;    // higher = slower needle (0-1)
+const FREQ_SMOOTH = 0.85;     // higher = slower frequency tracking
 
 // Build string buttons
 const grid = document.getElementById('stringsGrid');
@@ -572,9 +578,35 @@ function analyse() {
   const freq = detectPitch(buf, audioCtx.sampleRate);
 
   if (freq > 60 && freq < 1200) {
-    smoothedFreq = smoothedFreq === 0 ? freq : smoothedFreq * 0.8 + freq * 0.2;
+    // Smooth the raw frequency
+    smoothedFreq = smoothedFreq === 0 ? freq : smoothedFreq * FREQ_SMOOTH + freq * (1 - FREQ_SMOOTH);
     const result = freqToNote(smoothedFreq);
-    updateUI(result);
+
+    if (result) {
+      // Require the same note to appear consistently before switching display
+      if (stableNote === result.note) {
+        stableCount++;
+      } else {
+        stableNote = result.note;
+        stableCount = 0;
+      }
+
+      // Smooth cents independently for a calm needle
+      smoothedCents = smoothedCents * CENTS_SMOOTH + result.cents * (1 - CENTS_SMOOTH);
+
+      if (stableCount >= STABLE_THRESHOLD) {
+        updateUI({ ...result, cents: smoothedCents });
+      }
+    }
+  } else {
+    // Signal lost — decay needle slowly to center
+    smoothedCents = smoothedCents * 0.92;
+    if (Math.abs(smoothedCents) < 0.5) {
+      smoothedCents = 0;
+      stableNote = null;
+      stableCount = 0;
+    }
+    setNeedle(smoothedCents);
   }
 
   animFrame = requestAnimationFrame(analyse);
@@ -592,6 +624,9 @@ async function toggleListen() {
       source.connect(analyser);
       listening = true;
       smoothedFreq = 0;
+      smoothedCents = 0;
+      stableNote = null;
+      stableCount = 0;
       document.getElementById('startBtn').classList.add('listening');
       document.getElementById('btnText').textContent = 'STOP';
       document.getElementById('statusDot').classList.add('active');
@@ -606,6 +641,9 @@ async function toggleListen() {
     if (source) source.disconnect();
     if (audioCtx) audioCtx.close();
     smoothedFreq = 0;
+    smoothedCents = 0;
+    stableNote = null;
+    stableCount = 0;
     document.getElementById('startBtn').classList.remove('listening');
     document.getElementById('btnText').textContent = 'TAP TO TUNE';
     document.getElementById('statusDot').classList.remove('active');
